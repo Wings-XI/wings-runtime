@@ -1,0 +1,5 @@
+wings/
+import.bat
+LilisetteBot/__pycache__/*
+LilisetteBot/liliconfigs.py
+LilisetteBot/clusters_debug.txt
