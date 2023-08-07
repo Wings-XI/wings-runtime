@@ -109,6 +109,8 @@ async def tryResponse(mess):
         await mess.channel.send("https://tenor.com/view/enhance-gif-10953787")
     elif "can't do that" in msg:
         await mess.channel.send("https://tenor.com/view/itysl-i-think-you-should-leave-tim-robinson-you-cant-do-that-cant-gif-23125076")
+    elif "know everything" in msg:
+        await mess.channel.send("https://tenor.com/view/itysl-everything-dont-know-everybody-gif-25351975")
 
     # commands only allowed by "GM" roles. These are inserted into the audit_gm table
     if msg.startswith("$") and isGM(mess.author):
