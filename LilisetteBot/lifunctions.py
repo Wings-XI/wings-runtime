@@ -633,6 +633,36 @@ order by login_time desc
                         sqlQueries.append("SELECT charid AS id,accid,charname AS NAME,pos_zone as zone,pos_prevzone AS prevzone,(round(playtime/(24*60*60),1)) as playtime,timecreated,lastupdate FROM chars WHERE charid IN (" + str(char_list) + ");")
                     elif command == "getvar":
                         sqlQueries.append("SELECT * from char_vars WHERE varname = '" + str(extra) + "' and charid IN (" + str(char_list) + ");")
+                    elif command == "setvar":
+                        if not isSeniorStaffChannel(mess.channel):
+                            await mess.channel.send("https://tenor.com/view/itysl-i-think-you-should-leave-tim-robinson-you-cant-do-that-cant-gif-23125076")
+                            return
+                        if len(char_list.split(',')) == 1:
+                            validItems = True
+                            splitItems = extra.split(',')
+                            if len(splitItems) != 2:
+                                validItems = False
+                            else:
+                                varname = splitItems[0]
+                                varvalue = splitItems[1]
+                                if not (varvalue.isnumeric()):
+                                    validItems = False
+                            if validItems:
+                                insertQuery = "INSERT INTO char_vars (charid,varname,value) values ({0},'{1}',{2}) ON DUPLICATE KEY UPDATE value = {2}".format(str(char_list),str(varname),str(varvalue))
+                                print(insertQuery)
+                                global_defines.cursor.execute(insertQuery)
+                
+                                if global_defines.cursor.rowcount == 0:
+                                    await mess.channel.send("charvar set failed!")
+                                else:
+                                    await mess.channel.send("Set charvar (`{}`) to value (`{}`) for charid ({})".format(varname, varvalue, char_list))
+                                return
+                            else:
+                                await mess.channel.send("Invalid (varname,value) given: " + extra)
+                                return
+                        else:
+                            await mess.channel.send("Please use for a single char only")
+                        return
                     elif command == "posfix":
                         await mess.channel.send("coming soon")
                         return
@@ -678,7 +708,7 @@ order by login_time desc
                                     await mess.channel.send("Added item (`{}`) to dbox for charid ({})".format(itemName, char_list))
                                 return
                             else:
-                                await mess.channel.send("Invalid item/quantity given:" + items)
+                                await mess.channel.send("Invalid item/quantity given: " + items)
                                 return
                         else:
                             await mess.channel.send("Please use for a single char only")
