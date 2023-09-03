@@ -305,72 +305,6 @@ async def tryResponse(mess):
                     await mess.channel.send("Account has been verified " + account + "! You are good to go!")
                     return            
             
-            if msg.startswith("$addcontent"):
-                words = ["",""]
-                word_id = 0
-                for letter in msg:
-                    if letter != " ":
-                        words[word_id] += letter
-                    else:
-                        word_id += 1
-                
-                if word_id != 1:
-                    await mess.channel.send("Incorrect syntax! Command must be \"$addcontent accountID\" to add a contentID.")
-                    return
-                
-                account = words[1]
-                
-                if "'" in account:
-                    await mess.channel.send("Invalid account id.")
-                    return            
-                
-                global_defines.cursor.execute("SELECT * FROM wingslogin.ww_contents WHERE account_id IN ('" + account + "')")
-                
-                if global_defines.cursor.rowcount == 0:
-                    await mess.channel.send("Could not find account " + account + " with email " + email + ". Make sure you spelled both exactly correctly. If the issue still persists, contact an admin with database access.")
-                    return
-                
-                query = "INSERT INTO wingslogin.ww_contents VALUES (null," + str(account) + ",1)"
-                global_defines.cursor.execute(query)
-
-                await mess.channel.send("Account has been given a new content ID: " + account + "! You are good to go!")
-                return   
-                    
-            if msg.startswith("$beta"):
-                words = ["","",""]
-                word_id = 0
-                for letter in msg:
-                    if letter != " ":
-                        words[word_id] += letter
-                    else:
-                        word_id += 1    
-                
-                if word_id != 2:
-                    await mess.channel.send("Incorrect syntax! Command must be \"$beta [account] [email]\" to add beta privileges.")
-                    return
-                
-                account = words[1]
-                email = words[2]
-                
-                if "'" in account or "'" in email:
-                    await mess.channel.send("Invalid account name or email.")
-                    return
-                
-                global_defines.cursor.execute("SELECT * FROM wingslogin.ww_accounts WHERE username IN ('" + account + "') AND email IN ('" + email + "') LIMIT 1;")
-                
-                if global_defines.cursor.rowcount == 0:
-                    await mess.channel.send("Could not find account " + account + " with email " + email + ". Make sure you spelled both exactly correctly. If the issue still persists, contact an admin with database access.")
-                    return
-                
-                global_defines.cursor.execute("UPDATE wingslogin.ww_accounts SET privileges = 3 WHERE username IN ('" + account + "') AND email IN ('" + email + "') LIMIT 1;")
-                
-                if global_defines.cursor.rowcount == 0:
-                    await mess.channel.send("Account " + account + " already has beta access!")
-                    return
-                else:
-                    await mess.channel.send("Account has been given beta access: " + account + "! You are good to go!")
-                    return 
-
             if msg.startswith("$eadd"):
                 words = ["","",""]
                 word_id = 0
@@ -538,10 +472,20 @@ async def tryResponse(mess):
                 if len(words) > 3:
                     extra = words[3]
                 
+                allNumbers = True
+                for id in str(account).split(","):
+                    if not id.isdigit():
+                        allNumbers = False
+
                 if account.isdigit():
                     accountWhereStr = "id = " + str(account)
+                elif allNumbers == True:
+                    accountWhereStr = "id IN (" + str(account) + ")"
                 else:
-                    accountWhereStr = "username like '%" + str(account) + "%'"
+                    if command in ["unban","ban","addcontent"]: # force name match for certain commands
+                        accountWhereStr = "username = '" + str(account) + "'"
+                    else:
+                        accountWhereStr = "username like '%" + str(account) + "%'"
 
 
                 is_first = True
@@ -557,7 +501,20 @@ async def tryResponse(mess):
                 
                 if is_first == False or command == "unique":
                     sqlQueries = []
-                    if command == "info":
+                    if command == "addcontent":
+                        sqlQueries.append("INSERT INTO wingslogin.ww_contents SELECT NULL,id as account_id,1 as enabled from wingslogin.ww_accounts where id in ({});".format(str(account_list)))
+                        await mess.channel.send("content ids should be added for all accounts listed run `$account getcontent {}` to verify".format(account_list))
+                    elif command == "getcontent":
+                        sqlQueries.append("select count(account_id) as FreeIDs,account_id,enabled,group_concat(charid) from wingslogin.ww_contents left join ffxiwings.chars using(content_id) where account_id in ({}) group by account_id,isnull(charid);".format(str(account_list)))
+                    elif command == "addbeta":
+                        if len(account_list.split(',')) > 10:
+                            await mess.channel.send("please don't try to add beta to more than 10 accounts at a time")
+                            return
+                        # runs the info command before this command
+                        sqlQueries.append("SELECT id,username,features,status,privileges,ip_exempt,temp_exempt,timecreated,timemodified,(select group_concat(concat(charname,'(',charid,')')) from ffxiwings.chars where accid = wingslogin.ww_accounts.id) as chars FROM wingslogin.ww_accounts WHERE id in (" + str(account_list) + ");")
+                        sqlQueries.append("UPDATE wingslogin.ww_accounts set privileges = privileges + 2 where privileges & 2 = 0 and id in ({});".format(str(account_list)))
+                        await mess.channel.send("beta access should be added for all accounts listed that didn't already have it. Run `$account info {}` to verify".format(account_list))
+                    elif command == "info":
                         sqlQueries.append("SELECT id,username,features,status,privileges,ip_exempt,temp_exempt,timecreated,timemodified,(select group_concat(concat(charname,'(',charid,')')) from ffxiwings.chars where accid = wingslogin.ww_accounts.id) as chars FROM wingslogin.ww_accounts WHERE id in (" + str(account_list) + ");")
                     elif command == "unban":
                         if not isSeniorStaffChannel(mess.channel) or ',' in account_list:
@@ -588,7 +545,7 @@ order by login_time desc
                         await mess.channel.send("invalid account command (" + command +")")
                         return
                 else:
-                    await mess.channel.send("No account found")
+                    await mess.channel.send("No account found or more than one found for certain commands")
                     return
                 # execute sql and output results
                 #await mess.channel.send(sqlQuery)
@@ -607,10 +564,18 @@ order by login_time desc
                 if len(words) > 3:
                     extra = words[3]
                 
+                
+                allNumbers = True
+                for id in str(char).split(","):
+                    if not id.isdigit():
+                        allNumbers = False
+
                 if char.isdigit():
                     charWhereStr = "charid = " + str(char)
+                elif allNumbers == True:
+                    charWhereStr = "charid IN (" + str(char) + ")"
                 else:
-                    if command == "dbox": # force name match for dbox command
+                    if command in ["dbox","setvar"]: # force name match for certain command
                         charWhereStr = "charname = '" + str(char) + "'"
                     else:
                         charWhereStr = "charname like '%" + str(char) + "%'"
@@ -632,36 +597,33 @@ order by login_time desc
                     if command == "info":
                         sqlQueries.append("SELECT charid AS id,accid,charname AS NAME,pos_zone as zone,pos_prevzone AS prevzone,(round(playtime/(24*60*60),1)) as playtime,timecreated,lastupdate FROM chars WHERE charid IN (" + str(char_list) + ");")
                     elif command == "getvar":
-                        sqlQueries.append("SELECT * from char_vars WHERE varname = '" + str(extra) + "' and charid IN (" + str(char_list) + ");")
+                        sqlQueries.append("SELECT * from char_vars WHERE varname like '%" + str(extra) + "%' and charid IN (" + str(char_list) + ");")
                     elif command == "setvar":
                         if not isSeniorStaffChannel(mess.channel):
                             await mess.channel.send("https://tenor.com/view/itysl-i-think-you-should-leave-tim-robinson-you-cant-do-that-cant-gif-23125076")
                             return
-                        if len(char_list.split(',')) == 1:
-                            validItems = True
-                            splitItems = extra.split(',')
-                            if len(splitItems) != 2:
-                                validItems = False
-                            else:
-                                varname = splitItems[0]
-                                varvalue = splitItems[1]
-                                if not (varvalue.isnumeric()):
-                                    validItems = False
-                            if validItems:
-                                insertQuery = "INSERT INTO char_vars (charid,varname,value) values ({0},'{1}',{2}) ON DUPLICATE KEY UPDATE value = {2}".format(str(char_list),str(varname),str(varvalue))
-                                print(insertQuery)
-                                global_defines.cursor.execute(insertQuery)
-                
-                                if global_defines.cursor.rowcount == 0:
-                                    await mess.channel.send("charvar set failed!")
-                                else:
-                                    await mess.channel.send("Set charvar (`{}`) to value (`{}`) for charid ({})".format(varname, varvalue, char_list))
-                                return
-                            else:
-                                await mess.channel.send("Invalid (varname,value) given: " + extra)
-                                return
+                        validItems = True
+                        splitItems = extra.split(',')
+                        if len(splitItems) != 2:
+                            validItems = False
                         else:
-                            await mess.channel.send("Please use for a single char only")
+                            varname = splitItems[0]
+                            varvalue = splitItems[1]
+                            if not (varvalue.isnumeric()):
+                                validItems = False
+                        if validItems:
+                            insertQuery = "INSERT INTO char_vars (charid,varname,value) values ({0},'{1}',{2}) ON DUPLICATE KEY UPDATE value = {2}".format(str(char_list),str(varname),str(varvalue))
+                            print(insertQuery)
+                            global_defines.cursor.execute(insertQuery)
+            
+                            if global_defines.cursor.rowcount == 0:
+                                await mess.channel.send("charvar set failed!")
+                            else:
+                                await mess.channel.send("Set charvar (`{}`) to value (`{}`) for charid ({})".format(varname, varvalue, char_list))
+                            return
+                        else:
+                            await mess.channel.send("Invalid (varname,value) given: " + extra)
+                            return
                         return
                     elif command == "posfix":
                         await mess.channel.send("coming soon")
@@ -671,52 +633,49 @@ order by login_time desc
                         if not isSeniorStaffChannel(mess.channel):
                             await mess.channel.send("https://tenor.com/view/itysl-i-think-you-should-leave-tim-robinson-you-cant-do-that-cant-gif-23125076")
                             return
-                        if len(char_list.split(',')) == 1:
-                            if not (',' in extra):
-                                items = extra + ',1'
-                            else:
-                                items = extra
-                            validItems = True
-                            splitItems = items.split(',')
-                            if len(splitItems) != 2:
+                        if not (',' in extra):
+                            items = extra + ',1'
+                        else:
+                            items = extra
+                        validItems = True
+                        splitItems = items.split(',')
+                        if len(splitItems) != 2:
+                            validItems = False
+                        else:
+                            itemID = splitItems[0]
+                            quantity = splitItems[1]
+                            if not (itemID.isnumeric() and quantity.isnumeric()):
                                 validItems = False
                             else:
-                                itemID = splitItems[0]
-                                quantity = splitItems[1]
-                                if not (itemID.isnumeric() and quantity.isnumeric()):
+                                itemID = int(itemID)
+                                quantity = int(quantity)
+                                global_defines.cursor.execute("SELECT name,stackSize FROM item_basic WHERE itemid = {};".format(itemID))
+                                rows = global_defines.cursor.fetchall()
+                                if len(rows) != 1:
                                     validItems = False
                                 else:
-                                    itemID = int(itemID)
-                                    quantity = int(quantity)
-                                    global_defines.cursor.execute("SELECT name,stackSize FROM item_basic WHERE itemid = {};".format(itemID))
-                                    rows = global_defines.cursor.fetchall()
-                                    if len(rows) != 1:
-                                        validItems = False
-                                    else:
-                                        for row in rows:
-                                            if (quantity > int(row[1])) or quantity < 1:
-                                                validItems = False
-                                            else:
-                                                itemName = row[0]
-                            if validItems:
-                                insertQuery = "INSERT INTO delivery_box (box,charid,charname,sender,itemid,quantity) values (1,{0},(select charname from chars where charid = {0}),'{1}',{2})".format(char_list,mess.author.name,items)
-                                global_defines.cursor.execute(insertQuery)
-                
-                                if global_defines.cursor.rowcount == 0:
-                                    await mess.channel.send("dbox add failed!")
-                                else:
-                                    await mess.channel.send("Added item (`{}`) to dbox for charid ({})".format(itemName, char_list))
-                                return
+                                    for row in rows:
+                                        if (quantity > int(row[1])) or quantity < 1:
+                                            validItems = False
+                                        else:
+                                            itemName = row[0]
+                        if validItems:
+                            insertQuery = "INSERT INTO delivery_box (box,charid,charname,sender,itemid,quantity) values (1,{0},(select charname from chars where charid = {0}),'{1}',{2})".format(char_list,mess.author.name,items)
+                            global_defines.cursor.execute(insertQuery)
+            
+                            if global_defines.cursor.rowcount == 0:
+                                await mess.channel.send("dbox add failed!")
                             else:
-                                await mess.channel.send("Invalid item/quantity given: " + items)
-                                return
+                                await mess.channel.send("Added item (`{}`) to dbox for charid ({})".format(itemName, char_list))
+                            return
                         else:
-                            await mess.channel.send("Please use for a single char only")
+                            await mess.channel.send("Invalid item/quantity given: " + items)
+                            return
                     else:
                         await mess.channel.send("invalid char command (" + command +")")
                         return
                 else:
-                    await mess.channel.send("No char found")
+                    await mess.channel.send("No char found or more than one found for certain commands")
                     return
                 # execute sql and output results
                 #await mess.channel.send(sqlQuery)
